@@ -9,6 +9,8 @@
 import UIKit
 import CoreData
 
+var activeItem:String = ""
+
 class MasterViewController: UITableViewController, NSFetchedResultsControllerDelegate {
 
     var detailViewController: DetailViewController? = nil
@@ -26,14 +28,67 @@ class MasterViewController: UITableViewController, NSFetchedResultsControllerDel
     override func viewDidLoad() {
         super.viewDidLoad()
         // Do any additional setup after loading the view, typically from a nib.
-        self.navigationItem.leftBarButtonItem = self.editButtonItem()
-
-        let addButton = UIBarButtonItem(barButtonSystemItem: .Add, target: self, action: "insertNewObject:")
-        self.navigationItem.rightBarButtonItem = addButton
         if let split = self.splitViewController {
             let controllers = split.viewControllers
             self.detailViewController = controllers[controllers.count-1].topViewController as? DetailViewController
         }
+        var appDelegate = (UIApplication.sharedApplication().delegate as! AppDelegate)
+        var context = appDelegate.managedObjectContext
+        
+        var request = NSFetchRequest(entityName: "BlogItems")
+        request.returnsObjectsAsFaults = false
+        var results = context?.executeFetchRequest(request, error: nil)
+        
+        for result in results! {
+            context?.deleteObject(result as! NSManagedObject)
+        }
+        
+        let url = NSURL(string: "https://www.googleapis.com/blogger/v3/blogs/10861780/posts?key=AIzaSyDWl9rt0dD0Bmyh4xB-53U_4ICmZvAW__g")
+        
+        var task = NSURLSession.sharedSession().dataTaskWithURL(url!, completionHandler: { (data, response, error) -> Void in
+            
+            if error == nil {
+                
+                var jsonResult = NSJSONSerialization.JSONObjectWithData(data, options: NSJSONReadingOptions.MutableContainers, error: nil) as! NSDictionary
+                
+                var items = [[String:String]()]
+                var authorDictionary:NSDictionary
+                var item:NSDictionary
+                var entity:NSManagedObject
+                
+                for var i = 0; i < jsonResult["items"]!.count; i++ {
+                    
+                    items.append([String:String]())
+                    
+                    item = (jsonResult["items"] as! NSArray)[i] as! NSDictionary
+                    authorDictionary = item["author"] as! NSDictionary
+                    items[i]["author"] = authorDictionary["displayName"] as? String
+                    items[i]["title"] = item["title"] as? String
+                    items[i]["published"] = item["published"] as? String
+                    items[i]["content"] = item["content"] as? String
+                    
+                    entity = NSEntityDescription.insertNewObjectForEntityForName("BlogItems", inManagedObjectContext: context!) as! NSManagedObject
+                    entity.setValue(items[i]["author"], forKey: "author")
+                    entity.setValue(items[i]["title"], forKey: "title")
+                    entity.setValue(items[i]["published"], forKey: "published")
+                    entity.setValue(items[i]["content"], forKey: "content")
+                    context?.save(nil)
+                }
+                
+                request = NSFetchRequest(entityName: "BlogItems")
+                request.returnsObjectsAsFaults = false
+                results = context?.executeFetchRequest(request, error: nil)
+                
+                for result in results! {
+                    println(result)
+                }
+                
+            }
+            else {
+                println("error: \(error)")
+            }
+        })
+        task.resume()
     }
 
     override func didReceiveMemoryWarning() {
@@ -67,7 +122,7 @@ class MasterViewController: UITableViewController, NSFetchedResultsControllerDel
             if let indexPath = self.tableView.indexPathForSelectedRow() {
             let object = self.fetchedResultsController.objectAtIndexPath(indexPath) as! NSManagedObject
                 let controller = (segue.destinationViewController as! UINavigationController).topViewController as! DetailViewController
-                controller.detailItem = object
+                activeItem = object.valueForKey("content")!.description
                 controller.navigationItem.leftBarButtonItem = self.splitViewController?.displayModeButtonItem()
                 controller.navigationItem.leftItemsSupplementBackButton = true
             }
@@ -113,7 +168,7 @@ class MasterViewController: UITableViewController, NSFetchedResultsControllerDel
 
     func configureCell(cell: UITableViewCell, atIndexPath indexPath: NSIndexPath) {
             let object = self.fetchedResultsController.objectAtIndexPath(indexPath) as! NSManagedObject
-        cell.textLabel!.text = object.valueForKey("timeStamp")!.description
+        cell.textLabel!.text = object.valueForKey("title")!.description
     }
 
     // MARK: - Fetched results controller
@@ -125,14 +180,14 @@ class MasterViewController: UITableViewController, NSFetchedResultsControllerDel
         
         let fetchRequest = NSFetchRequest()
         // Edit the entity name as appropriate.
-        let entity = NSEntityDescription.entityForName("Event", inManagedObjectContext: self.managedObjectContext!)
+        let entity = NSEntityDescription.entityForName("BlogItems", inManagedObjectContext: self.managedObjectContext!)
         fetchRequest.entity = entity
         
         // Set the batch size to a suitable number.
         fetchRequest.fetchBatchSize = 20
         
         // Edit the sort key as appropriate.
-        let sortDescriptor = NSSortDescriptor(key: "timeStamp", ascending: false)
+        let sortDescriptor = NSSortDescriptor(key: "published", ascending: false)
         let sortDescriptors = [sortDescriptor]
         
         fetchRequest.sortDescriptors = [sortDescriptor]
